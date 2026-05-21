@@ -24,3 +24,4 @@ build/
 
 # K3s images
 k8s/images/
+k8s/manifests/50-db-secret.yaml
