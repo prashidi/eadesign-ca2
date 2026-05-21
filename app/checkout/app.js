@@ -1,7 +1,9 @@
 const express = require('express');
 const crypto = require('crypto');
 const { Pool } = require('pg');
+const pino = require('pino');
 
+const logger = pino({ level: 'info' });
 const app = express();
 const PORT = process.env.PORT || 3003;
 
@@ -15,7 +17,7 @@ app.use((req, res, next) => {
   const rid = getReqId(req);
   req.requestId = rid;
   res.setHeader('X-Request-Id', rid);
-  console.log(`[rid=${rid}] ${req.method} ${req.path}`);
+  logger.info({ service: 'checkout-fn', requestId: rid, method: req.method, path: req.path }, 'incoming request');
   next();
 });
 
@@ -29,21 +31,12 @@ const DB_NAME = process.env.DB_NAME || 'checkoutdb';
 const DB_USER = process.env.DB_USER || 'postgres';
 const DB_PASSWORD = process.env.DB_PASSWORD || '';
 
-const pool = new Pool({
-  host: DB_HOST,
-  port: DB_PORT,
-  database: DB_NAME,
-  user: DB_USER,
-  password: DB_PASSWORD
-});
+const pool = new Pool({ host: DB_HOST, port: DB_PORT, database: DB_NAME, user: DB_USER, password: DB_PASSWORD });
 
 function withTimeout(ms) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), ms);
-  return {
-    signal: controller.signal,
-    cancel: () => clearTimeout(timer)
-  };
+  return { signal: controller.signal, cancel: () => clearTimeout(timer) };
 }
 
 async function initDb() {
@@ -60,48 +53,33 @@ async function initDb() {
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )
   `);
-  console.log('[checkout-fn] checkout_records table ready');
+  logger.info({ service: 'checkout-fn' }, 'checkout_records table ready');
 }
 
 async function saveCheckoutRecord(record) {
   await pool.query(
-    `
-    INSERT INTO checkout_records
-      (request_id, sku, subtotal, tax, total, in_stock, status)
-    VALUES
-      ($1, $2, $3, $4, $5, $6, $7)
-    `,
-    [
-      record.requestId,
-      record.sku,
-      record.subtotal,
-      record.tax,
-      record.total,
-      record.inStock,
-      record.status
-    ]
+    `INSERT INTO checkout_records (request_id, sku, subtotal, tax, total, in_stock, status)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [record.requestId, record.sku, record.subtotal, record.tax, record.total, record.inStock, record.status]
   );
 }
 
 app.get('/health', async (req, res) => {
-  const requestId = req.requestId;
-  console.log(`[checkout-fn] GET /health request_id=${requestId}`);
+  logger.info({ service: 'checkout-fn', requestId: req.requestId }, 'health check');
   res.json({ ok: true, service: 'checkout-fn' });
 });
 
 app.post(['/checkout', '/api/checkout'], async (req, res) => {
   const requestId = req.requestId;
   const { sku, subtotal } = req.body;
-
   const skuNum = Number(sku);
   const subNum = Number(subtotal);
 
-  console.log(`[checkout-fn] POST /checkout request_id=${requestId} sku=${sku} subtotal=${subtotal}`);
+  logger.info({ service: 'checkout-fn', requestId, sku, subtotal }, 'checkout request');
 
   if (!Number.isInteger(skuNum)) {
     return res.status(400).json({ requestId, error: 'sku must be an integer' });
   }
-
   if (!Number.isFinite(subNum) || subNum < 0) {
     return res.status(400).json({ requestId, error: 'subtotal must be a non-negative number' });
   }
@@ -113,31 +91,24 @@ app.post(['/checkout', '/api/checkout'], async (req, res) => {
     const [priceRes, stockRes] = await Promise.all([
       fetch(`${PRICING_URL}/price`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Request-Id': requestId
-        },
+        headers: { 'Content-Type': 'application/json', 'X-Request-Id': requestId },
         body: JSON.stringify({ subtotal: subNum }),
         signal: pricingCtl.signal
       }),
       fetch(`${INVENTORY_URL}/stock/${skuNum}`, {
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Request-Id': requestId
-        },
+        headers: { 'Content-Type': 'application/json', 'X-Request-Id': requestId },
         signal: inventoryCtl.signal
       })
     ]);
 
     if (!priceRes.ok) {
       const body = await priceRes.json().catch(() => ({}));
-      console.log(`[checkout-fn] pricing failed request_id=${requestId}`);
+      logger.warn({ service: 'checkout-fn', requestId }, 'pricing failed');
       return res.status(502).json({ requestId, error: body.error || 'pricing failed' });
     }
-
     if (!stockRes.ok) {
       const body = await stockRes.json().catch(() => ({}));
-      console.log(`[checkout-fn] inventory failed request_id=${requestId}`);
+      logger.warn({ service: 'checkout-fn', requestId }, 'inventory failed');
       return res.status(502).json({ requestId, error: body.error || 'inventory failed' });
     }
 
@@ -145,65 +116,23 @@ app.post(['/checkout', '/api/checkout'], async (req, res) => {
     const stock = await stockRes.json();
 
     if (!stock.inStock) {
-      await saveCheckoutRecord({
-        requestId,
-        sku: skuNum,
-        subtotal: subNum,
-        tax: price.tax,
-        total: price.total,
-        inStock: false,
-        status: 'out_of_stock'
-      });
-
-      console.log(`[checkout-fn] out of stock request_id=${requestId} sku=${skuNum}`);
-
-      return res.status(409).json({
-        requestId,
-        error: 'out of stock',
-        sku: skuNum,
-        price
-      });
+      await saveCheckoutRecord({ requestId, sku: skuNum, subtotal: subNum, tax: price.tax, total: price.total, inStock: false, status: 'out_of_stock' });
+      logger.info({ service: 'checkout-fn', requestId, sku: skuNum }, 'out of stock');
+      return res.status(409).json({ requestId, error: 'out of stock', sku: skuNum, price });
     }
 
-    await saveCheckoutRecord({
-      requestId,
-      sku: skuNum,
-      subtotal: subNum,
-      tax: price.tax,
-      total: price.total,
-      inStock: true,
-      status: 'confirmed'
-    });
+    await saveCheckoutRecord({ requestId, sku: skuNum, subtotal: subNum, tax: price.tax, total: price.total, inStock: true, status: 'confirmed' });
+    logger.info({ service: 'checkout-fn', requestId, sku: skuNum, status: 'confirmed' }, 'checkout confirmed');
+    return res.json({ ok: true, requestId, sku: skuNum, price, stock, status: 'confirmed' });
 
-    return res.json({
-      ok: true,
-      requestId,
-      sku: skuNum,
-      price,
-      stock,
-      status: 'confirmed'
-    });
   } catch (error) {
-    console.log(`[checkout-fn] dependency timeout/unavailable request_id=${requestId}`);
-
+    logger.error({ service: 'checkout-fn', requestId, err: error.message }, 'dependency timeout/unavailable');
     try {
-      await saveCheckoutRecord({
-        requestId,
-        sku: Number.isInteger(skuNum) ? skuNum : -1,
-        subtotal: Number.isFinite(subNum) ? subNum : 0,
-        tax: null,
-        total: null,
-        inStock: null,
-        status: 'dependency_failed'
-      });
+      await saveCheckoutRecord({ requestId, sku: Number.isInteger(skuNum) ? skuNum : -1, subtotal: Number.isFinite(subNum) ? subNum : 0, tax: null, total: null, inStock: null, status: 'dependency_failed' });
     } catch (dbError) {
-      console.log(`[checkout-fn] failed to save dependency_failed record request_id=${requestId}`);
+      logger.error({ service: 'checkout-fn', requestId }, 'failed to save dependency_failed record');
     }
-
-    return res.status(503).json({
-      requestId,
-      error: 'dependency timeout/unavailable'
-    });
+    return res.status(503).json({ requestId, error: 'dependency timeout/unavailable' });
   } finally {
     pricingCtl.cancel();
     inventoryCtl.cancel();
@@ -211,12 +140,5 @@ app.post(['/checkout', '/api/checkout'], async (req, res) => {
 });
 
 initDb()
-  .then(() => {
-    app.listen(PORT, () => {
-      console.log(`checkout-fn listening on port ${PORT}`);
-    });
-  })
-  .catch((error) => {
-    console.error('[checkout-fn] database initialization failed', error);
-    process.exit(1);
-  });
+  .then(() => app.listen(PORT, () => logger.info({ service: 'checkout-fn', port: PORT }, 'listening')))
+  .catch((error) => { logger.error({ service: 'checkout-fn', err: error.message }, 'database initialization failed'); process.exit(1); });

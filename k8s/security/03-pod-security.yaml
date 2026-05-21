@@ -17,7 +17,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: checkout-fn
-          image: ead/checkout-fn:v5
+          image: ead/checkout-fn:v6
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 3003
@@ -79,7 +79,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: pricing-fn
-          image: ead/pricing-fn:v3
+          image: ead/pricing-fn:v4
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 3001
@@ -121,7 +121,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: inventory-fn
-          image: ead/inventory-fn:v3
+          image: ead/inventory-fn:v4
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 3002
