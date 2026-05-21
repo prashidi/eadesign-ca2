@@ -1,0 +1,52 @@
+services:
+  pricing-fn:
+    build: ./app/pricing
+    environment:
+      - PORT=3001
+      - DELAY_MS=0
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+
+  inventory-fn:
+    build: ./app/inventory
+    environment:
+      - PORT=3002
+      - DELAY_MS=800
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+
+  checkout-fn:
+    build: ./app/checkout
+    environment:
+      - PORT=3003
+      - PRICING_URL=http://pricing-fn:3001
+      - INVENTORY_URL=http://inventory-fn:3002
+      - TIMEOUT_MS=1500
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      - pricing-fn
+      - inventory-fn
+
+  gateway:
+    build: ./app/gateway
+    ports:
+      - "8088:80"
+    read_only: true
+    tmpfs:
+      - /var/cache/nginx
+      - /var/run
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      - checkout-fn
