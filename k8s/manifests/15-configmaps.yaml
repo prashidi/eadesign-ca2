@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ead-nginx-conf
+data:
+  default.conf: |
+$(sed 's/^/    /' k8s/gateway/default.conf)
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ead-ui
+data:
+  index.html: |
+$(sed 's/^/    /' k8s/gateway/index.html)
