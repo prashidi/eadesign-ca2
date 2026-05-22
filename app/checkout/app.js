@@ -9,6 +9,15 @@ const PORT = process.env.PORT || 3003;
 
 app.use(express.json({ limit: '50kb' }));
 
+const metrics = {
+  totalRequests: 0,
+  successfulCheckouts: 0,
+  outOfStock: 0,
+  dependencyFailures: 0,
+  pricingErrors: 0,
+  inventoryErrors: 0
+};
+
 function getReqId(req) {
   return req.header('X-Request-Id') || crypto.randomUUID();
 }
@@ -69,12 +78,18 @@ app.get('/health', async (req, res) => {
   res.json({ ok: true, service: 'checkout-fn' });
 });
 
+app.get('/metrics', (req, res) => {
+  logger.info({ service: 'checkout-fn', requestId: req.requestId }, 'metrics requested');
+  res.json({ service: 'checkout-fn', metrics });
+});
+
 app.post(['/checkout', '/api/checkout'], async (req, res) => {
   const requestId = req.requestId;
   const { sku, subtotal } = req.body;
   const skuNum = Number(sku);
   const subNum = Number(subtotal);
 
+  metrics.totalRequests++;
   logger.info({ service: 'checkout-fn', requestId, sku, subtotal }, 'checkout request');
 
   if (!Number.isInteger(skuNum)) {
@@ -103,11 +118,13 @@ app.post(['/checkout', '/api/checkout'], async (req, res) => {
 
     if (!priceRes.ok) {
       const body = await priceRes.json().catch(() => ({}));
+      metrics.pricingErrors++;
       logger.warn({ service: 'checkout-fn', requestId }, 'pricing failed');
       return res.status(502).json({ requestId, error: body.error || 'pricing failed' });
     }
     if (!stockRes.ok) {
       const body = await stockRes.json().catch(() => ({}));
+      metrics.inventoryErrors++;
       logger.warn({ service: 'checkout-fn', requestId }, 'inventory failed');
       return res.status(502).json({ requestId, error: body.error || 'inventory failed' });
     }
@@ -117,15 +134,18 @@ app.post(['/checkout', '/api/checkout'], async (req, res) => {
 
     if (!stock.inStock) {
       await saveCheckoutRecord({ requestId, sku: skuNum, subtotal: subNum, tax: price.tax, total: price.total, inStock: false, status: 'out_of_stock' });
+      metrics.outOfStock++;
       logger.info({ service: 'checkout-fn', requestId, sku: skuNum }, 'out of stock');
       return res.status(409).json({ requestId, error: 'out of stock', sku: skuNum, price });
     }
 
     await saveCheckoutRecord({ requestId, sku: skuNum, subtotal: subNum, tax: price.tax, total: price.total, inStock: true, status: 'confirmed' });
+    metrics.successfulCheckouts++;
     logger.info({ service: 'checkout-fn', requestId, sku: skuNum, status: 'confirmed' }, 'checkout confirmed');
     return res.json({ ok: true, requestId, sku: skuNum, price, stock, status: 'confirmed' });
 
   } catch (error) {
+    metrics.dependencyFailures++;
     logger.error({ service: 'checkout-fn', requestId, err: error.message }, 'dependency timeout/unavailable');
     try {
       await saveCheckoutRecord({ requestId, sku: Number.isInteger(skuNum) ? skuNum : -1, subtotal: Number.isFinite(subNum) ? subNum : 0, tax: null, total: null, inStock: null, status: 'dependency_failed' });

@@ -17,7 +17,7 @@ spec:
       automountServiceAccountToken: false
       containers:
         - name: checkout-fn
-          image: ead/checkout-fn:v6
+          image: ead/checkout-fn:v7
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 3003
