@@ -1,0 +1,24 @@
+2026-05-22T10:05:59Z	INFO	Adding schema version to the DB repository for backward compatibility	repository="ghcr.io/aquasecurity/trivy-db:2"
+2026-05-22T10:05:59Z	INFO	[vulndb] Need to update DB
+2026-05-22T10:05:59Z	INFO	[vulndb] Downloading vulnerability DB...
+2026-05-22T10:05:59Z	INFO	[vulndb] Downloading artifact...	repo="ghcr.io/aquasecurity/trivy-db:2"
+2026-05-22T10:06:06Z	INFO	[vulndb] Artifact successfully downloaded	repo="ghcr.io/aquasecurity/trivy-db:2"
+2026-05-22T10:06:06Z	INFO	[vuln] Vulnerability scanning is enabled
+2026-05-22T10:06:06Z	INFO	[secret] Secret scanning is enabled
+2026-05-22T10:06:06Z	INFO	[secret] If your scanning is slow, please try '--scanners vuln' to disable secret scanning
+2026-05-22T10:06:06Z	INFO	[secret] Please see https://trivy.dev/docs/v0.70/guide/scanner/secret#recommendation for faster secret detection
+2026-05-22T10:06:08Z	INFO	Detected OS	family="alpine" version="3.23.4"
+2026-05-22T10:06:08Z	INFO	[alpine] Detecting vulnerabilities...	os_version="3.23" repository="3.23" pkg_num=71
+2026-05-22T10:06:08Z	INFO	Number of language-specific files	num=0
+
+Report Summary
+
+┌──────────────────────────────┬────────┬─────────────────┬─────────┐
+│            Target            │  Type  │ Vulnerabilities │ Secrets │
+├──────────────────────────────┼────────┼─────────────────┼─────────┤
+│ nginx:alpine (alpine 3.23.4) │ alpine │        0        │    -    │
+└──────────────────────────────┴────────┴─────────────────┴─────────┘
+Legend:
+- '-': Not scanned
+- '0': Clean (no security findings detected)
+
