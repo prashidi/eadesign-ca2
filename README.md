@@ -67,7 +67,7 @@ curl -X POST http://localhost/api/checkout \
 ## Observability
 
 - Prometheus: `http://<node-ip>:32001`
-- Grafana: `http://<node-ip>:32000` (admin/admin123)
+- Grafana: `http://<node-ip>:32000` (ADMIN-USER/ADMIN-PASSWORD) // replace with correct admin credentials
 - Metrics endpoint: `GET /metrics` on checkout-fn
 
 ## Security Testing
